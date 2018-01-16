@@ -1,13 +1,7 @@
 var gulp = require('gulp');
-var browserify = require('browserify');
-var source = require('vinyl-source-stream');
 var concat = require('gulp-concat');
 var uglify = require('gulp-uglify');
-var utilities = require('gulp-util');
-var del = require('del');
-var jshint = require('gulp-jshint');
-var babelify = require('babelify');
-var buildProduction = utilities.env.production;
+
 var lib = require('bower-files')({
   "overrides":{
     "bootstrap" : {
@@ -20,68 +14,63 @@ var lib = require('bower-files')({
   }
 });
 
+var utilities = require('gulp-util');
+var buildProduction = utilities.env.production;
+var del = require('del');
 var browserSync = require('browser-sync').create();
+var shell = require('gulp-shell');
 var sass = require('gulp-sass');
 var sourcemaps = require('gulp-sourcemaps');
 
-gulp.task('jshint', function(){
-  return gulp.src(['js/*.js'])
-    .pipe(jshint())
-    .pipe(jshint.reporter('default'));
+////////////////////// TYPESCRIPT //////////////////////
+
+
+gulp.task('tsClean', function(){
+  return del(['app/*.js', 'app/*.js.map']);
 });
 
-gulp.task('concatInterface', function() {
-  return gulp.src(['./js/*-interface.js'])
-  .pipe(concat('allConcat.js'))
-  .pipe(gulp.dest('./tmp'));
+gulp.task('ts', ['tsClean'], shell.task([
+  'tsc'
+]));
+
+////////////////////// BOWER //////////////////////
+
+
+gulp.task('jsBowerClean', function(){
+  return del(['./build/js/vendor.min.js']);
 });
 
-gulp.task('jsBrowserify', ['concatInterface'], function() {
-  return browserify({ entries: ['./tmp/allConcat.js'] })
-    .transform(babelify.configure({
-      presets: ['es2015']
-    }))
-    .bundle()
-    .pipe(source('app.js'))
-    .pipe(gulp.dest('./build/js'));
-});
-
-gulp.task('minifyScripts', ['jsBrowserify'], function(){
-  return gulp.src('./build/js/app.js')
-    .pipe(uglify())
-    .pipe(gulp.dest('./build/js'));
-});
-
-gulp.task('bowerJS', function () {
+gulp.task('jsBower', ['jsBowerClean'], function() {
   return gulp.src(lib.ext('js').files)
     .pipe(concat('vendor.min.js'))
     .pipe(uglify())
     .pipe(gulp.dest('./build/js'));
 });
 
-// gulp.task('bowerCSS', function () {
-//   return gulp.src(lib.ext('css').files)
-//     .pipe(concat('vendor.css'))
-//     .pipe(gulp.dest('./build/css'));
-// });
-// REMOVED from as gulp task and as dependency for 'bower' task
-
-gulp.task('bower', ['bowerJS']);
-
-gulp.task("clean", function(){
-  return del(['build', 'tmp']);
+gulp.task('cssBowerClean', function(){
+  return del(['./build/css/vendor.css']);
 });
 
-// We'll put this at the end of our file, since it will use our other tasks.
-gulp.task('build', ['clean'], function(){
-  if (buildProduction) {
-    gulp.start('minifyScripts');
-  } else {
-    gulp.start('jsBrowserify');
-  }
-  gulp.start('bower');
-  gulp.start('cssBuild');
+gulp.task('cssBower', ['cssBowerClean'], function() {
+  return gulp.src(lib.ext('css').files)
+    .pipe(concat('vendor.css'))
+    .pipe(gulp.dest('./build/css'));
 });
+
+gulp.task('bower', ['jsBower', 'cssBower']);
+
+////////////////////// SASS //////////////////////
+
+gulp.task('sassBuild', function() {
+  return gulp.src(['resources/styles/*'])
+    .pipe(sourcemaps.init())
+    .pipe(sass())
+    .pipe(sourcemaps.write())
+    .pipe(gulp.dest('./build/css'));
+});
+
+////////////////////// SERVER //////////////////////
+
 
 gulp.task('serve', ['build'], function() {
   browserSync.init({
@@ -90,30 +79,32 @@ gulp.task('serve', ['build'], function() {
       index: "index.html"
     }
   });
-
-  gulp.watch(['js/*.js'], ['jsBuild']);
-  gulp.watch(['bower.json'], ['bowerBuild']);
-  gulp.watch(['*.html'], ['htmlBuild']);
-  gulp.watch('scss/*.scss', ['cssBuild']);
+  gulp.watch(['resources/js/*.js'], ['jsBuild']); // vanilla js changes, reload.
+  gulp.watch(['*.html'], ['htmlBuild']); // html changes, reload.
+  gulp.watch(['resources/styles/*.css', 'resources/styles/*.scss'], ['cssBuild']);
+  gulp.watch(['app/*.ts'], ['tsBuild']); // typescript files change, compile then reload.
 });
 
-gulp.task('jsBuild', ['jsBrowserify', 'jshint'], function(){
+gulp.task('jsBuild', function(){
   browserSync.reload();
 });
 
-gulp.task('bowerBuild', ['bower'], function(){
+gulp.task('htmlBuild', function(){
   browserSync.reload();
 });
 
-gulp.task('htmlBuild', ['bower'], function(){
+gulp.task('cssBuild', ['sassBuild'], function(){
   browserSync.reload();
 });
 
-gulp.task('cssBuild', ['bower'], function(){
-  return gulp.src('scss/*.scss')
-  .pipe(sourcemaps.init())
-  .pipe(sass())
-  .pipe(sourcemaps.write())
-  .pipe(gulp.dest('./build/css'))
-  .pipe(browserSync.stream());
+gulp.task('tsBuild', ['ts'], function(){
+  browserSync.reload();
+});
+
+////////////////////// GLOBAL BUILD TASK //////////////////////
+
+gulp.task('build', ['ts'], function(){
+  // we can use the buildProduction environment variable here later.
+  gulp.start('bower');
+  gulp.start('sassBuild');
 });

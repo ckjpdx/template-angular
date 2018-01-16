@@ -4,3 +4,6 @@ sass-cache/
 *.map
 bower_components/
 build/
+npm-debug.log
+app/*.js
+app/*.js.map
